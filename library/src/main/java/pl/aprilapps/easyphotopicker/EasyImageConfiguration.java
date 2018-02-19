@@ -45,6 +45,13 @@ public class EasyImageConfiguration implements Constants {
         return this;
     }
 
+    public EasyImageConfiguration setUseCache(boolean useCache) {
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putBoolean(BundleKeys.USE_CACHE, useCache)
+                .apply();
+        return this;
+    }
+
     public String getFolderName() {
         return PreferenceManager.getDefaultSharedPreferences(context).getString(BundleKeys.FOLDER_NAME, DEFAULT_FOLDER_NAME);
     }
@@ -59,6 +66,10 @@ public class EasyImageConfiguration implements Constants {
 
     public boolean shouldCopyPickedImagesToPublicGalleryAppFolder() {
         return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(BundleKeys.COPY_PICKED_IMAGES, false);
+    }
+
+    public boolean shouldUseCache() {
+        return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(BundleKeys.USE_CACHE, true);
     }
 
 }

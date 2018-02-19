@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static pl.aprilapps.easyphotopicker.EasyImageFiles.singleFileList;
+import static pl.aprilapps.easyphotopicker.EasyImageFiles.singleUriList;
 
 
 /**
@@ -41,6 +42,8 @@ public class EasyImage implements Constants {
 
     public interface Callbacks {
         void onImagePickerError(Exception e, ImageSource source, int type);
+
+        void onImagesPickedUris(@NonNull List<Uri> imageUris, ImageSource source, int type);
 
         void onImagesPicked(@NonNull List<File> imageFiles, ImageSource source, int type);
 
@@ -340,11 +343,16 @@ public class EasyImage implements Constants {
     private static void onPictureReturnedFromDocuments(Intent data, Activity activity, @NonNull Callbacks callbacks) {
         try {
             Uri photoPath = data.getData();
-            File photoFile = EasyImageFiles.pickedExistingPicture(activity, photoPath);
-            callbacks.onImagesPicked(singleFileList(photoFile), ImageSource.DOCUMENTS, restoreType(activity));
+
+            if(configuration(activity).shouldUseCache()) {
+                File photoFile = EasyImageFiles.pickedExistingPicture(activity, photoPath);
+                callbacks.onImagesPicked(singleFileList(photoFile), ImageSource.DOCUMENTS, restoreType(activity));
+            } else {
+                callbacks.onImagesPickedUris(singleUriList(photoPath), ImageSource.DOCUMENTS, restoreType(activity));
+            }
 
             if (configuration(activity).shouldCopyPickedImagesToPublicGalleryAppFolder()) {
-                EasyImageFiles.copyFilesInSeparateThread(activity, singleFileList(photoFile));
+                EasyImageFiles.copyFilesFromUriInSeparateThread(activity, singleUriList(photoPath));
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -354,25 +362,38 @@ public class EasyImage implements Constants {
 
     private static void onPictureReturnedFromGallery(Intent data, Activity activity, @NonNull Callbacks callbacks) {
         try {
+            // TODO: improve this function
+            // Right now, both Uris and Files are processed regardless if "caching" is used or not -
+            // therefore, if caching is disabled, processing files is meaningless.
+            // Based on the option, an appropriate callback is fired with either Uris or Files.
             ClipData clipData = data.getClipData();
+            List<Uri> fileUris = new ArrayList<>();
             List<File> files = new ArrayList<>();
+
             if (clipData == null) {
                 Uri uri = data.getData();
+                fileUris.add(uri);
                 File file = EasyImageFiles.pickedExistingPicture(activity, uri);
                 files.add(file);
             } else {
                 for (int i = 0; i < clipData.getItemCount(); i++) {
                     Uri uri = clipData.getItemAt(i).getUri();
+                    fileUris.add(uri);
                     File file = EasyImageFiles.pickedExistingPicture(activity, uri);
                     files.add(file);
                 }
             }
 
-            if (configuration(activity).shouldCopyPickedImagesToPublicGalleryAppFolder()) {
-                EasyImageFiles.copyFilesInSeparateThread(activity, files);
+            if(configuration(activity).shouldUseCache()) {
+                callbacks.onImagesPicked(files, ImageSource.GALLERY, restoreType(activity));
+            } else {
+                callbacks.onImagesPickedUris(fileUris, ImageSource.GALLERY, restoreType(activity));
             }
 
-            callbacks.onImagesPicked(files, ImageSource.GALLERY, restoreType(activity));
+            if (configuration(activity).shouldCopyPickedImagesToPublicGalleryAppFolder()) {
+                EasyImageFiles.copyFilesFromUriInSeparateThread(activity, fileUris);
+            }
+
         } catch (Exception e) {
             e.printStackTrace();
             callbacks.onImagePickerError(e, ImageSource.GALLERY, restoreType(activity));
@@ -386,19 +407,26 @@ public class EasyImage implements Constants {
                 revokeWritePermission(activity, Uri.parse(lastImageUri));
             }
 
-            File photoFile = EasyImage.takenCameraPicture(activity);
-            List<File> files = new ArrayList<>();
-            files.add(photoFile);
-
-            if (photoFile == null) {
-                Exception e = new IllegalStateException("Unable to get the picture returned from camera");
-                callbacks.onImagePickerError(e, ImageSource.CAMERA, restoreType(activity));
-            } else {
-                if (configuration(activity).shouldCopyTakenPhotosToPublicGalleryAppFolder()) {
-                    EasyImageFiles.copyFilesInSeparateThread(activity, singleFileList(photoFile));
+            if(configuration(activity).shouldUseCache()) {
+                File photoFile = EasyImage.takenCameraPicture(activity);
+                if (photoFile == null) {
+                    Exception e = new IllegalStateException("Unable to get the picture returned from camera");
+                    callbacks.onImagePickerError(e, ImageSource.CAMERA, restoreType(activity));
+                } else {
+                    callbacks.onImagesPicked(singleFileList(photoFile), ImageSource.CAMERA, restoreType(activity));
                 }
+            } else {
+                Uri photoFileUri = Uri.parse(lastImageUri);
+                if (photoFileUri == null) {
+                    Exception e = new IllegalStateException("Unable to get the picture URI returned from camera");
+                    callbacks.onImagePickerError(e, ImageSource.CAMERA, restoreType(activity));
+                } else {
+                    callbacks.onImagesPickedUris(singleUriList(photoFileUri), ImageSource.CAMERA, restoreType(activity));
+                }
+            }
 
-                callbacks.onImagesPicked(files, ImageSource.CAMERA, restoreType(activity));
+            if (configuration(activity).shouldCopyTakenPhotosToPublicGalleryAppFolder()) {
+                EasyImageFiles.copyFilesFromUriInSeparateThread(activity, singleUriList(Uri.parse(lastImageUri)));
             }
 
             PreferenceManager.getDefaultSharedPreferences(activity)

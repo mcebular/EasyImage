@@ -21,5 +21,6 @@ public interface Constants {
         String ALLOW_MULTIPLE = "pl.aprilapps.easyimage.allow_multiple";
         String COPY_TAKEN_PHOTOS = "pl.aprilapps.easyimage.copy_taken_photos";
         String COPY_PICKED_IMAGES = "pl.aprilapps.easyimage.copy_picked_images";
+        String USE_CACHE = "pl.aprilapps.easyimage.use_cache";
     }
 }

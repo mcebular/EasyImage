@@ -86,9 +86,44 @@ class EasyImageFiles implements Constants {
         }).run();
     }
 
+    static void copyFilesFromUriInSeparateThread(final Context context, final List<Uri> fileUrisToCopy) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<File> copiedFiles = new ArrayList<>();
+                int i = 1;
+                for (Uri fileUriToCopy : fileUrisToCopy) {
+                    File dstDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), getFolderName(context));
+                    if (!dstDir.exists()) dstDir.mkdirs();
+
+                    String extension = "." + getMimeType(context, fileUriToCopy);
+                    String filename = String.format("IMG_%s_%d.%s", new SimpleDateFormat("yyyyMMdd_HHmmss").format(Calendar.getInstance().getTime()), i, extension);
+
+                    File dstFile = new File(dstDir, filename);
+                    try {
+                        dstFile.createNewFile();
+                        InputStream pictureInputStream = context.getContentResolver().openInputStream(fileUriToCopy);
+                        writeToFile(pictureInputStream, dstFile);
+                        copiedFiles.add(dstFile);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    i++;
+                }
+                scanCopiedImages(context, copiedFiles);
+            }
+        }).run();
+    }
+
     static List<File> singleFileList(File file) {
         List<File> list = new ArrayList<>();
         list.add(file);
+        return list;
+    }
+
+    static List<Uri> singleUriList(Uri uri) {
+        List<Uri> list = new ArrayList<>();
+        list.add(uri);
         return list;
     }
 
