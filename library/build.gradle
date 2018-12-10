@@ -1,5 +1,19 @@
 apply plugin: 'com.android.library'
-apply plugin: 'com.github.dcendents.android-maven'
+apply plugin: 'maven-publish'
+
+def artifactId = 'EasyImage'
+def groupId = 'com.github.jkwiecien'
+
+publishing {
+    publications {
+        library(MavenPublication) {
+            setGroupId(groupId)
+            setArtifactId(artifactId)
+            version version_name
+            artifact(bundleRelease)
+        }
+    }
+}
 
 android {
     compileSdkVersion compile_sdk_version
@@ -24,4 +38,3 @@ dependencies {
     implementation "com.android.support:appcompat-v7:$support_library_version"
 }
 
-apply from: 'https://raw.githubusercontent.com/Commit451/gradle-android-javadocs/1.0.0/gradle-android-javadocs.gradle'

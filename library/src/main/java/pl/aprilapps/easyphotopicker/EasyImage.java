@@ -37,7 +37,7 @@ public class EasyImage implements Constants {
     private static final boolean SHOW_GALLERY_IN_CHOOSER = false;
 
     public enum ImageSource {
-        GALLERY, DOCUMENTS, CAMERA
+        GALLERY, DOCUMENTS, CAMERA_IMAGE, CAMERA_VIDEO
     }
 
     public interface Callbacks {
@@ -51,7 +51,9 @@ public class EasyImage implements Constants {
     }
 
     private static final String KEY_PHOTO_URI = "pl.aprilapps.easyphotopicker.photo_uri";
+    private static final String KEY_VIDEO_URI = "pl.aprilapps.easyphotopicker.video_uri";
     private static final String KEY_LAST_CAMERA_PHOTO = "pl.aprilapps.easyphotopicker.last_photo";
+    private static final String KEY_LAST_CAMERA_VIDEO = "pl.aprilapps.easyphotopicker.last_video";
     private static final String KEY_TYPE = "pl.aprilapps.easyphotopicker.type";
 
     private static Uri createCameraPictureFile(@NonNull Context context) throws IOException {
@@ -60,6 +62,16 @@ public class EasyImage implements Constants {
         SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(context).edit();
         editor.putString(KEY_PHOTO_URI, uri.toString());
         editor.putString(KEY_LAST_CAMERA_PHOTO, imagePath.toString());
+        editor.apply();
+        return uri;
+    }
+
+    private static Uri createCameraVideoFile(@NonNull Context context) throws IOException {
+        File imagePath = EasyImageFiles.getCameraVideoLocation(context);
+        Uri uri = EasyImageFiles.getUriToFile(context, imagePath);
+        SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(context).edit();
+        editor.putString(KEY_VIDEO_URI, uri.toString());
+        editor.putString(KEY_LAST_CAMERA_VIDEO, imagePath.toString());
         editor.apply();
         return uri;
     }
@@ -81,12 +93,28 @@ public class EasyImage implements Constants {
         return intent;
     }
 
-    private static Intent createCameraIntent(@NonNull Context context, int type) {
+    private static Intent createCameraForImageIntent(@NonNull Context context, int type) {
         storeType(context, type);
 
         Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
         try {
             Uri capturedImageUri = createCameraPictureFile(context);
+            //We have to explicitly grant the write permission since Intent.setFlag works only on API Level >=20
+            grantWritePermission(context, intent, capturedImageUri);
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, capturedImageUri);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return intent;
+    }
+
+    private static Intent createCameraForVideoIntent(@NonNull Context context, int type) {
+        storeType(context, type);
+
+        Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
+        try {
+            Uri capturedImageUri = createCameraVideoFile(context);
             //We have to explicitly grant the write permission since Intent.setFlag works only on API Level >=20
             grantWritePermission(context, intent, capturedImageUri);
             intent.putExtra(MediaStore.EXTRA_OUTPUT, capturedImageUri);
@@ -251,19 +279,34 @@ public class EasyImage implements Constants {
         fragment.startActivityForResult(intent, RequestCodes.PICK_PICTURE_FROM_GALLERY);
     }
 
-    public static void openCamera(Activity activity, int type) {
-        Intent intent = createCameraIntent(activity, type);
+    public static void openCameraForImage(Activity activity, int type) {
+        Intent intent = createCameraForImageIntent(activity, type);
         activity.startActivityForResult(intent, RequestCodes.TAKE_PICTURE);
     }
 
-    public static void openCamera(Fragment fragment, int type) {
-        Intent intent = createCameraIntent(fragment.getActivity(), type);
+    public static void openCameraForImage(Fragment fragment, int type) {
+        Intent intent = createCameraForImageIntent(fragment.getActivity(), type);
         fragment.startActivityForResult(intent, RequestCodes.TAKE_PICTURE);
     }
 
-    public static void openCamera(android.app.Fragment fragment, int type) {
-        Intent intent = createCameraIntent(fragment.getActivity(), type);
+    public static void openCameraForImage(android.app.Fragment fragment, int type) {
+        Intent intent = createCameraForImageIntent(fragment.getActivity(), type);
         fragment.startActivityForResult(intent, RequestCodes.TAKE_PICTURE);
+    }
+
+    public static void openCameraForVideo(Activity activity, int type) {
+        Intent intent = createCameraForVideoIntent(activity, type);
+        activity.startActivityForResult(intent, RequestCodes.CAPTURE_VIDEO);
+    }
+
+    public static void openCameraForVideo(Fragment fragment, int type) {
+        Intent intent = createCameraForVideoIntent(fragment.getActivity(), type);
+        fragment.startActivityForResult(intent, RequestCodes.CAPTURE_VIDEO);
+    }
+
+    public static void openCameraForVideo(android.app.Fragment fragment, int type) {
+        Intent intent = createCameraForVideoIntent(fragment.getActivity(), type);
+        fragment.startActivityForResult(intent, RequestCodes.CAPTURE_VIDEO);
     }
 
     @Nullable
@@ -276,11 +319,24 @@ public class EasyImage implements Constants {
         }
     }
 
+    @Nullable
+    private static File takenCameraVideo(Context context) throws IOException, URISyntaxException {
+        String lastCameraPhoto = PreferenceManager.getDefaultSharedPreferences(context).getString(KEY_LAST_CAMERA_VIDEO, null);
+        if (lastCameraPhoto != null) {
+            return new File(lastCameraPhoto);
+        } else {
+            return null;
+        }
+    }
+
     public static void handleActivityResult(int requestCode, int resultCode, Intent data, Activity activity, @NonNull Callbacks callbacks) {
         boolean isEasyImage = (requestCode & RequestCodes.EASYIMAGE_IDENTIFICATOR) > 0;
         if (isEasyImage) {
             requestCode &= ~RequestCodes.SOURCE_CHOOSER;
-            if (requestCode == RequestCodes.PICK_PICTURE_FROM_GALLERY || requestCode == RequestCodes.TAKE_PICTURE || requestCode == RequestCodes.PICK_PICTURE_FROM_DOCUMENTS) {
+            if (requestCode == RequestCodes.PICK_PICTURE_FROM_GALLERY ||
+                    requestCode == RequestCodes.TAKE_PICTURE ||
+                    requestCode == RequestCodes.CAPTURE_VIDEO ||
+                    requestCode == RequestCodes.PICK_PICTURE_FROM_DOCUMENTS) {
                 if (resultCode == Activity.RESULT_OK) {
                     if (requestCode == RequestCodes.PICK_PICTURE_FROM_DOCUMENTS && !isPhoto(data)) {
                         onPictureReturnedFromDocuments(data, activity, callbacks);
@@ -288,6 +344,8 @@ public class EasyImage implements Constants {
                         onPictureReturnedFromGallery(data, activity, callbacks);
                     } else if (requestCode == RequestCodes.TAKE_PICTURE) {
                         onPictureReturnedFromCamera(activity, callbacks);
+                    } else if (requestCode == RequestCodes.CAPTURE_VIDEO) {
+                        onVideoReturnedFromCamera(activity, callbacks);
                     } else if (isPhoto(data)) {
                         onPictureReturnedFromCamera(activity, callbacks);
                     } else {
@@ -299,7 +357,7 @@ public class EasyImage implements Constants {
                     } else if (requestCode == RequestCodes.PICK_PICTURE_FROM_GALLERY) {
                         callbacks.onCanceled(ImageSource.GALLERY, restoreType(activity));
                     } else {
-                        callbacks.onCanceled(ImageSource.CAMERA, restoreType(activity));
+                        callbacks.onCanceled(ImageSource.CAMERA_IMAGE, restoreType(activity));
                     }
                 }
             }
@@ -331,6 +389,17 @@ public class EasyImage implements Constants {
      */
     public static File lastlyTakenButCanceledPhoto(@NonNull Context context) {
         String filePath = PreferenceManager.getDefaultSharedPreferences(context).getString(KEY_LAST_CAMERA_PHOTO, null);
+        if (filePath == null) return null;
+        File file = new File(filePath);
+        if (file.exists()) {
+            return file;
+        } else {
+            return null;
+        }
+    }
+
+    public static File lastlyTakenButCanceledVideo(@NonNull Context context) {
+        String filePath = PreferenceManager.getDefaultSharedPreferences(context).getString(KEY_LAST_CAMERA_VIDEO, null);
         if (filePath == null) return null;
         File file = new File(filePath);
         if (file.exists()) {
@@ -411,17 +480,17 @@ public class EasyImage implements Constants {
                 File photoFile = EasyImage.takenCameraPicture(activity);
                 if (photoFile == null) {
                     Exception e = new IllegalStateException("Unable to get the picture returned from camera");
-                    callbacks.onImagePickerError(e, ImageSource.CAMERA, restoreType(activity));
+                    callbacks.onImagePickerError(e, ImageSource.CAMERA_IMAGE, restoreType(activity));
                 } else {
-                    callbacks.onImagesPicked(singleFileList(photoFile), ImageSource.CAMERA, restoreType(activity));
+                    callbacks.onImagesPicked(singleFileList(photoFile), ImageSource.CAMERA_IMAGE, restoreType(activity));
                 }
             } else {
                 Uri photoFileUri = Uri.parse(lastImageUri);
                 if (photoFileUri == null) {
                     Exception e = new IllegalStateException("Unable to get the picture URI returned from camera");
-                    callbacks.onImagePickerError(e, ImageSource.CAMERA, restoreType(activity));
+                    callbacks.onImagePickerError(e, ImageSource.CAMERA_IMAGE, restoreType(activity));
                 } else {
-                    callbacks.onImagesPickedUris(singleUriList(photoFileUri), ImageSource.CAMERA, restoreType(activity));
+                    callbacks.onImagesPickedUris(singleUriList(photoFileUri), ImageSource.CAMERA_IMAGE, restoreType(activity));
                 }
             }
 
@@ -436,7 +505,40 @@ public class EasyImage implements Constants {
                     .apply();
         } catch (Exception e) {
             e.printStackTrace();
-            callbacks.onImagePickerError(e, ImageSource.CAMERA, restoreType(activity));
+            callbacks.onImagePickerError(e, ImageSource.CAMERA_IMAGE, restoreType(activity));
+        }
+    }
+
+    private static void onVideoReturnedFromCamera(Activity activity, @NonNull Callbacks callbacks) {
+        try {
+            String lastVideoUri = PreferenceManager.getDefaultSharedPreferences(activity).getString(KEY_VIDEO_URI, null);
+            if (!TextUtils.isEmpty(lastVideoUri)) {
+                revokeWritePermission(activity, Uri.parse(lastVideoUri));
+            }
+
+            File photoFile = EasyImage.takenCameraVideo(activity);
+            List<File> files = new ArrayList<>();
+            files.add(photoFile);
+
+            if (photoFile == null) {
+                Exception e = new IllegalStateException("Unable to get the video returned from camera");
+                callbacks.onImagePickerError(e, ImageSource.CAMERA_VIDEO, restoreType(activity));
+            } else {
+                if (configuration(activity).shouldCopyTakenPhotosToPublicGalleryAppFolder()) {
+                    EasyImageFiles.copyFilesInSeparateThread(activity, singleFileList(photoFile));
+                }
+
+                callbacks.onImagesPicked(files, ImageSource.CAMERA_VIDEO, restoreType(activity));
+            }
+
+            PreferenceManager.getDefaultSharedPreferences(activity)
+                    .edit()
+                    .remove(KEY_LAST_CAMERA_VIDEO)
+                    .remove(KEY_VIDEO_URI)
+                    .apply();
+        } catch (Exception e) {
+            e.printStackTrace();
+            callbacks.onImagePickerError(e, ImageSource.CAMERA_VIDEO, restoreType(activity));
         }
     }
 
