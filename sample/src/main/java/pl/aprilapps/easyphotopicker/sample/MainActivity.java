@@ -3,25 +3,35 @@ package pl.aprilapps.easyphotopicker.sample;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 
-import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
-
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+
+import pl.aprilapps.easyphotopicker.ChooserType;
 import pl.aprilapps.easyphotopicker.DefaultCallback;
 import pl.aprilapps.easyphotopicker.EasyImage;
-import pl.tajchert.nammu.Nammu;
-import pl.tajchert.nammu.PermissionCallback;
+import pl.aprilapps.easyphotopicker.MediaFile;
+import pl.aprilapps.easyphotopicker.MediaSource;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements EasyImage.EasyImageStateHandler {
 
     private static final String PHOTOS_KEY = "easy_image_photos_list";
+    private static final String STATE_KEY = "easy_image_state";
+    private static final int CHOOSER_PERMISSIONS_REQUEST_CODE = 7459;
+    private static final int GALLERY_REQUEST_CODE = 7502;
+    private static final int DOCUMENTS_REQUEST_CODE = 7503;
+    private static final int LEGACY_EXTERNAL_STORAGE_PERMISSION_REQUEST_CODE = 456;
 
     protected RecyclerView recyclerView;
 
@@ -29,19 +39,23 @@ public class MainActivity extends AppCompatActivity {
 
     private ImagesAdapter imagesAdapter;
 
-    private ArrayList<File> photos = new ArrayList<>();
+    private ArrayList<MediaFile> photos = new ArrayList<>();
+
+    private EasyImage easyImage;
+
+    private static final String[] LEGACY_WRITE_PERMISSIONS = new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        Nammu.init(this);
 
         recyclerView = findViewById(R.id.recycler_view);
         galleryButton = findViewById(R.id.gallery_button);
 
         if (savedInstanceState != null) {
-            photos = (ArrayList<File>) savedInstanceState.getSerializable(PHOTOS_KEY);
+            photos = savedInstanceState.getParcelableArrayList(PHOTOS_KEY);
+            easyImageState = savedInstanceState.getParcelable(STATE_KEY);
         }
 
         imagesAdapter = new ImagesAdapter(this, photos);
@@ -49,26 +63,15 @@ public class MainActivity extends AppCompatActivity {
         recyclerView.setHasFixedSize(true);
         recyclerView.setAdapter(imagesAdapter);
 
-        int permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
-            Nammu.askForPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE, new PermissionCallback() {
-                @Override
-                public void permissionGranted() {
-                    //Nothing, this sample saves to Public gallery so it needs permission
-                }
-
-                @Override
-                public void permissionRefused() {
-                    finish();
-                }
-            });
-        }
-
-        EasyImage.configuration(this)
-                .setImagesFolderName("EasyImage sample")
-                .setCopyTakenPhotosToPublicGalleryAppFolder(true)
-                .setCopyPickedImagesToPublicGalleryAppFolder(true)
-                .setAllowMultiplePickInGallery(true);
+        easyImage = new EasyImage.Builder(this)
+                .setChooserTitle("Pick media")
+                .setCopyImagesToPublicGalleryFolder(true) // THIS requires granting WRITE_EXTERNAL_STORAGE permission for devices running Android 9 or lower
+//                .setChooserType(ChooserType.CAMERA_AND_DOCUMENTS)
+                .setChooserType(ChooserType.CAMERA_AND_GALLERY)
+                .setFolderName("EasyImage sample")
+                .allowMultiple(true)
+                .setStateHandler(this)
+                .build();
 
         checkGalleryAppAvailability();
 
@@ -76,8 +79,11 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.gallery_button).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                /** Some devices such as Samsungs which have their own gallery app require write permission. Testing is advised! */
-                EasyImage.openGallery(MainActivity.this, 0);
+                if (isLegacyExternalStoragePermissionRequired()) {
+                    requestLegacyWriteExternalStoragePermission();
+                } else {
+                    easyImage.openGallery(MainActivity.this);
+                }
             }
         });
 
@@ -85,37 +91,32 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.camera_button).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                EasyImage.openCameraForImage(MainActivity.this, 0);
+                if (isLegacyExternalStoragePermissionRequired()) {
+                    requestLegacyWriteExternalStoragePermission();
+                } else {
+                    easyImage.openCameraForImage(MainActivity.this);
+                }
             }
         });
 
         findViewById(R.id.camera_video_button).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                EasyImage.openCameraForVideo(MainActivity.this, 0);
+                if (isLegacyExternalStoragePermissionRequired()) {
+                    requestLegacyWriteExternalStoragePermission();
+                } else {
+                    easyImage.openCameraForVideo(MainActivity.this);
+                }
             }
         });
 
         findViewById(R.id.documents_button).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                /** Some devices such as Samsungs which have their own gallery app require write permission. Testing is advised! */
-
-                int permissionCheck = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-                if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
-                    EasyImage.openDocuments(MainActivity.this, 0);
+                if (isLegacyExternalStoragePermissionRequired()) {
+                    requestLegacyWriteExternalStoragePermission();
                 } else {
-                    Nammu.askForPermission(MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE, new PermissionCallback() {
-                        @Override
-                        public void permissionGranted() {
-                            EasyImage.openDocuments(MainActivity.this, 0);
-                        }
-
-                        @Override
-                        public void permissionRefused() {
-
-                        }
-                    });
+                    easyImage.openDocuments(MainActivity.this);
                 }
             }
         });
@@ -123,28 +124,38 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.chooser_button).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                EasyImage.openChooserWithDocuments(MainActivity.this, "Pick source", 0);
+                if (isLegacyExternalStoragePermissionRequired()) {
+                    requestLegacyWriteExternalStoragePermission();
+                } else {
+                    easyImage.openChooser(MainActivity.this);
+                }
             }
         });
 
+    }
 
-        findViewById(R.id.chooser_button2).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                EasyImage.openChooserWithGallery(MainActivity.this, "Pick source", 0);
-            }
-        });
+    private Bundle easyImageState = new Bundle();
 
+    @Override
+    @NonNull
+    public Bundle restoreEasyImageState() {
+        return easyImageState;
+    }
+
+    @Override
+    public void saveEasyImageState(Bundle state) {
+        easyImageState = state;
     }
 
     @Override
     public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         outState.putSerializable(PHOTOS_KEY, photos);
+        outState.putParcelable(STATE_KEY, easyImageState);
     }
 
     private void checkGalleryAppAvailability() {
-        if (!EasyImage.canDeviceHandleGallery(this)) {
+        if (!easyImage.canDeviceHandleGallery()) {
             //Device has no app that handles gallery intent
             galleryButton.setVisibility(View.GONE);
         }
@@ -153,46 +164,54 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        Nammu.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == CHOOSER_PERMISSIONS_REQUEST_CODE && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            easyImage.openChooser(MainActivity.this);
+        } else if (requestCode == GALLERY_REQUEST_CODE && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            easyImage.openGallery(MainActivity.this);
+        } else if (requestCode == DOCUMENTS_REQUEST_CODE && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            easyImage.openDocuments(MainActivity.this);
+        }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
-        EasyImage.handleActivityResult(requestCode, resultCode, data, this, new DefaultCallback() {
+        easyImage.handleActivityResult(requestCode, resultCode, data, this, new DefaultCallback() {
             @Override
-            public void onImagePickerError(Exception e, EasyImage.ImageSource source, int type) {
-                //Some error handling
-                e.printStackTrace();
-            }
-
-            @Override
-            public void onImagesPicked(List<File> imageFiles, EasyImage.ImageSource source, int type) {
+            public void onMediaFilesPicked(MediaFile[] imageFiles, MediaSource source) {
+                for (MediaFile imageFile : imageFiles) {
+                    Log.d("EasyImage", "Image file returned: " + imageFile.getFile().toString());
+                }
                 onPhotosReturned(imageFiles);
             }
 
             @Override
-            public void onCanceled(EasyImage.ImageSource source, int type) {
-                //Cancel handling, you might wanna remove taken photo if it was canceled
-                if (source == EasyImage.ImageSource.CAMERA_IMAGE) {
-                    File photoFile = EasyImage.lastlyTakenButCanceledPhoto(MainActivity.this);
-                    if (photoFile != null) photoFile.delete();
-                }
+            public void onImagePickerError(@NonNull Throwable error, @NonNull MediaSource source) {
+                //Some error handling
+                error.printStackTrace();
+            }
+
+            @Override
+            public void onCanceled(@NonNull MediaSource source) {
+                //Not necessary to remove any files manually anymore
             }
         });
     }
 
-    private void onPhotosReturned(List<File> returnedPhotos) {
-        photos.addAll(returnedPhotos);
+    private void onPhotosReturned(@NonNull MediaFile[] returnedPhotos) {
+        photos.addAll(Arrays.asList(returnedPhotos));
         imagesAdapter.notifyDataSetChanged();
         recyclerView.scrollToPosition(photos.size() - 1);
     }
 
-    @Override
-    protected void onDestroy() {
-        // Clear any configuration that was done!
-        EasyImage.clearConfiguration(this);
-        super.onDestroy();
+    private boolean isLegacyExternalStoragePermissionRequired() {
+        boolean permissionGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        return Build.VERSION.SDK_INT < 29 && !permissionGranted;
+    }
+
+    private void requestLegacyWriteExternalStoragePermission() {
+        ActivityCompat.requestPermissions(MainActivity.this, LEGACY_WRITE_PERMISSIONS, LEGACY_EXTERNAL_STORAGE_PERMISSION_REQUEST_CODE);
     }
 }

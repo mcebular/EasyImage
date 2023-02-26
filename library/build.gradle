@@ -1,16 +1,20 @@
 apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android-extensions'
+apply plugin: 'kotlin-android'
 apply plugin: 'maven-publish'
 
-def artifactId = 'EasyImage'
+def artifactId = 'EasyImageLegacy'
 def groupId = 'com.github.jkwiecien'
 
-publishing {
-    publications {
-        library(MavenPublication) {
-            setGroupId(groupId)
-            setArtifactId(artifactId)
-            version version_name
-            artifact(bundleReleaseAar)
+project.afterEvaluate {
+    publishing {
+        publications {
+            library(MavenPublication) {
+                setGroupId(groupId)
+                setArtifactId(artifactId)
+                version version_name
+                artifact(bundleReleaseAar)
+            }
         }
     }
 }
@@ -31,9 +35,17 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    
+    kotlinOptions {
+        kotlinOptions.freeCompilerArgs += ['-module-name', "$groupId.$artifactId"]
+    }
 }
 
 dependencies {
-    implementation 'androidx.appcompat:appcompat:1.0.0'
+    implementation 'androidx.appcompat:appcompat:1.0.2'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+}
+repositories {
+    mavenCentral()
 }
 
